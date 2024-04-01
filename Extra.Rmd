@@ -1,0 +1,82 @@
+---
+title: "Extra Code"
+author: "William Mahnke"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Extra Code
+This file contains extra code, plots, and other material from the project that was taken out or changed from the final version.
+
+## Extra from Intro/EDA
+
+### Distribution of Genre
+
+```{r, distribtuion of genre}
+game_data_sorted <- game_data %>%
+  group_by(Genre) %>%
+  summarize(Count = n()) %>%
+  arrange(desc(Count))
+
+ggplot(game_data_sorted, aes(x = reorder(Genre, -Count), y = Count)) +
+  geom_bar(fill = 'blue', color = 'black', alpha = 0.7, stat = 'identity') +
+  theme(axis.text.x = element_text(angle  = 45, hjust = 0.9)) + 
+  xlab("Genre") +
+  ylab("Number of Games")
+
+ggplot(game_data, aes(x = Genre, y = Critic_Score, color = Genre)) + geom_boxplot() + geom_jitter(alpha = 0.1) +
+  theme(axis.text.x = element_text(angle  = 45, size = 8, hjust = 0.9)) +
+  labs(title = "Critic Scores of Genres", y = "Critic Score") 
+```
+
+Much like the previous box plots, these show that `Critic_Score` and its interquantile range change depending on the Genre of the game. The boxplot also the imbalance in appearances in the data set. However, unlike `Platform`, I won't be collapsing the levels of `Genre`. Each level of Genre feels distinct and important to determining the performance of the games of that particular style. Additionally, the variable already has its own `Misc` column. 
+
+### Distribution of Platform 
+
+```{r}
+game_data_sorted <- game_data %>%
+  group_by(Platform) %>%
+  summarize(Count = n()) %>%
+  arrange(sort(Count))
+
+ggplot(game_data_sorted, aes(x = reorder(Platform, -Count), y = Count)) +
+  geom_bar(fill = 'blue', color = 'black', alpha = 0.7, stat = 'identity') +
+  theme(axis.text.x = element_text(angle  = 90, size = 8)) + 
+  xlab("Platform/Console") +
+  ylab("Number of Games")
+```
+
+### Tables for Developer and Publisher
+
+```{r, tables for Developer and Publisher}
+publisher_table <- table(game_data$Publisher)
+names(publisher_table[publisher_table > 290])
+
+developer_table <- table(game_data$Developer)
+names(developer_table[developer_table > 90])
+```
+
+Additionally, Developer and Publisher will also have their own `other` categories. Making a table of both of the variables show that there's far too many developers and publishers to include within a model. Choosing the best number of publishers and developers will come when models are fit, but looking at different threshold values to include specific developers and publishers indicates the number of levels will be between five to eight.
+
+### Scatterplots of Sales
+
+```{r, scatterplots for NA, EU, Other sales}
+# NA-EU 
+ggplot(game_data, aes(y = EU_Sales, x = NA_Sales)) + geom_point(alpha = 0.2)
+# NA-Other
+ggplot(game_data, aes(y = Other_Sales, x = NA_Sales)) + geom_point()
+# EU-Other
+ggplot(game_data, aes(y = Other_Sales, x = EU_Sales)) + geom_point()
+```
+
+The scatterplots of the variables with a relatively higher correlation reflect the relatively positive relationship between NA_Sales, EU_Sales, and Other_Sales that were in the correlation matrix. The scatter plots also reveal leverage points in the data, some where both of the respective sales are extremely high and others where one of the sales is incredibly high while the other is very small (anything close to the axes). Leverage points where both of the sales are unusually high are just games that sold more copies, but the leverage points close to the axes could prompt further exploration to understand the relationships in sales.
+
+```{r, creating vector for less common publishers}
+# Publisher
+publisher_table <- table(game_data$Publisher)
+length(names(publisher_table[publisher_table > 290]))
+other_publishers <- publisher_table[publisher_table <= 290]

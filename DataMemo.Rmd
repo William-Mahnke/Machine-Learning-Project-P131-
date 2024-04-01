@@ -1,0 +1,28 @@
+---
+title: "Data Memo"
+author: "William Mahnke"
+date: "`r Sys.Date()`"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+```{r, echo = T}
+game_data <- read.csv("~/Desktop/P131/Video_Games.csv")
+
+# First few rows of the data set
+head(game_data, n = 5)
+# Structure of each of the variables
+str(game_data)
+```
+
+  The data set is a collection of video game sales and ratings taken from the Kaggle data set repository (https://www.kaggle.com/datasets/thedevastator/video-game-sales-and-ratings?select=Video_Games.csv). The data includes the name of the game, the year it was published, the platform it is available on, its genre, and the sales. The sales for each game includes not only the global sales, but also the sales in North America, Europe, Japan, and a miscellaneous column. Each observation also includes the average user and critic score, the number of user and critic reviews, the game's developer, and the game's rating. In total, the data set has about 17000 observations and 10 predictors. The data works with both qualitative and quantitative variables. The quantitative variables relate to the sales of the game, the ratings given by the users and critics, and the release year while the qualitative variables relate to the name, publisher, developer, platform, rating, and genre of the game. A low percentage, about 10-15%, of the observations in the set are missing their critic score, user score, number of critic reviews, number of user reviews, the developer, and the rating of the game. If my research questions only require a smaller subset of the data, it's possible to look up and fill in the developer and ratings of the games. Addressing the critic and user ratings would be more difficult as it's unclear where the author got the ratings from. Additionally, if my research questions require using the entire data set, I don't have an idea on how to address the issue that doesn't include omitting the observations with missing data.
+
+  I'm mostly interested in predicting how the sales a game would get given the platform, publisher, developer, release year, user and critic ratings, genre, and rating. I also think it would interesting to dive deeper and predict the sales within each region outlined in the data set. The obvious question to ask is if a company is planning on making/releasing a particular game, how well would it sell. But I could also break the question into parts for particular regions. Additionally, I would interested in predicting the sales of a game if it were released in a different year. A question that could be interesting is "how well would this particular game do if it were released 10 years before/after it actually was?". The primary question is predicting the sales of a game, but I'm also interested in the relationship of the total sales of a game with individual variables to see how each aspect contributes to how well games sell. The response variables are Global_Sales (the global sales for the game), NA_Sales (sales in North America), EU_Sales (sales in Europe), JP_Sales (sales in Japan), and Other_Sales (sales in other regions) all in millions. My research questions would best be answered by a regression approach since the response variables are all quantitative variables. I think that the user and critic scores and number of reviews will be particularly helpful for answering my research questions. Since the goal my research questions is to effectively predict a response variable while also exploring the relationships between predictors and the response variables, the goal of the model will be a mix of predictive and inferential. 
+
+  I already have the data set loaded. It should be done with tidying the data by the end of week 3 and done with the exploratory data analysis by the end of week 4. After the EDA, I'll spend about the new two or three weeks running the models and be able to start my report for the project around week 8. I only difficult aspects of my project I anticipate are handling the observations that have missing values and creating a model that will have so many quantitative variables. 

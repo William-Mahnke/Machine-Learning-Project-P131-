@@ -1,0 +1,17 @@
+Index: indexing numbers for the data set
+Name: the name of the game
+Platform: the platform the game is played on
+Year_of_Release: the year the game was released
+Genre: what kind of genre the game is (e.g. Sports, Platform, Puzzle)
+Publisher: the company that published the game
+NA_Sales: the sales of the game (number of units sold) in North America in millions
+EU_Sales: the sales of the game (number of units sold) in Europe in millions
+JP_Sales: the sales of the game (number of units sold) in Japan in millions
+Other_Sales: the sales of the game (number of units sold) in other regions in millions
+Global_Sales: the total global sales of the game (number of units sold) in millions
+Critic_Score: the average score of the game given by critics, on a scale of 0-100
+Critic_Count: the number of critics who reviewed the game
+User_Score: the average score of the game given by users, on a scale of 0-10
+User_Count: the number of users who reviewed the game
+Developer: the company that developed the game
+Rating: the maturity rating for the game, given by the Entertainment Software Rating Board (ESRB) 

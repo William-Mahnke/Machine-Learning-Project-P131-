@@ -1,0 +1,587 @@
+---
+title: "Predicting Critic Reviews of Video Games"
+subtitle: "PSTAT 131 Final Project"
+author: "William Mahnke"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+    toc: true
+    theme: united
+    df_print: paged
+  pdf_document: 
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The goal of this project is to predict the average critic reviews for video games. 
+
+This data set contains video games across multiple genres between 1985 and 2016. The data set also contains the developer, the publisher, the platform, and the maturity rating of the game. The main features of the data set though are the sales of each game in North America, Europe, Japan, the rest of the world, and a total global sales (that's the sum of the other four columns). Another set of important features is the Critic and User review of the game and the number of reviews from critics and users, users referring to the general population (anyone that's not a critic). 
+
+The problem of interest is given the sales performance of the game, developed and published by specific companies, what would be the average rating from critics on the game? We can propose that the consensus of critics on a game can be predicted by who developed and published the game, what genre the game is, and the game's accessibility through maturity rating. The sales information, the user's reviews, and the number of reviews can help gauge the performance of the game in public which will help the models' accuracy.
+
+The results from the models could be used in two different ways. The predicted critic score could measure how a game performed against expectations. If a game gets a particular critic score, the difference between that score and the score the model predicts can represent how much a game did or didn't meet expectations. An alternative is given a prediction of how a type of game made by a particular company would sell, you could predict how the game would perform (where the user scores would help hint at the game's consensus).
+
+### Loading packages and data set
+
+First, we'll load the packages and data set.
+
+```{r, "loading packages"}
+library(tidymodels)
+library(ISLR)
+library(ISLR2)
+library(tidyverse)
+library(ggthemes)
+library(ggplot2)
+library(patchwork)
+library(corrplot)
+library(naniar)
+library(yardstick)
+library(vip)
+library(xgboost)
+tidymodels_prefer()
+```
+
+```{r, loading file}
+game_data <- read.csv("~/Desktop/P131/Project/Video_Games.csv") # loading the data set
+
+game_data %>% head()
+```
+
+Already looking at the first six observations in the data set we can see that there is missing data in some of the columns. This will be addressed as a part of the exploratory data analysis.
+
+## Exploratory Data Analysis (EDA)
+
+The overall goal of the EDA is to assess the missing data, gather intuition about the (cleaned) data, and gain insight into how to make the recipe for the models. 
+
+### Missing Data
+
+The first six observations of the data set revealed missing data and blank entries in some of the variables. To assess how much data is truly missing from the data set, we'll first change the blank entries to `NA` and then use `vis_miss()` to see how many entries are missing.
+
+```{r, echo=FALSE, "adding NA to empty entries"}
+game_data <- game_data %>% mutate(
+  across(starts_with("User_S") & where(is.character), ~ na_if(.x,"")),
+  across(starts_with("Developer") & where(is.character), ~na_if(.x,"")),
+  across(starts_with("Rating") & where(is.character), ~na_if(.x,"")),
+  across(starts_with("Name") & where(is.character), ~na_if(.x,"")),
+  across(starts_with("Platform") & where(is.character), ~na_if(.x,"")),
+  across(starts_with("Genre") & where(is.character), ~na_if(.x,"")),
+  across(starts_with("Publisher") & where(is.character), ~na_if(.x,"")),
+)
+```
+
+```{r, analyzing missing data}
+vis_miss(game_data)
+```
+
+The results show that a significant proportion of the entries from `Critic_Score`, `Critic_Count`, and `User_Count` are missing and that "filling in" those blank entries revealed they made up about 40 percent of those variables. This process also revealed small pieces of missing entries in `Name` and `Genre`.
+
+#### Dropping Observations
+
+```{r, dimensions of the filetered data}
+game_data <- game_data %>% drop_na()
+```
+
+Filtering the observations of the data to only include observations with no missing information shows there are slightly less than 7000 "full" observations. For the sake of this project, I will be using these entries to explore the relationships between variables and predict observations. All references to the data set refer to the filtered data set.
+
+### Critic_Score
+
+First, we'll look at the distribution of the response variable, `Critic_Score`.
+
+```{r, echo = FALSE, "distribution of critic score"}
+game_data_sorted <- game_data %>%
+  group_by(Critic_Score) %>%
+  summarize(Count = n())
+
+ggplot(game_data_sorted, aes(x = Critic_Score, y = Count)) +
+  geom_bar(fill = 'blue', color = 'black', alpha = 0.7, stat = 'identity') +
+  labs(title = "Distribution of Critic_Score",
+       x = "Critic Score", y = "")
+```
+
+The graph shows that the `Critic_Score` is distributed in a left-skewed curve where the most common scores are in the 70's. However, the variable has a wide range, from 13 to 98, so the model will have to predict games that have a variety of scores. 
+
+### Platform
+
+`Platform` refers to the hardware the game is played on. Platforms have different features and levels of performance and feature console-specific games that can influence their popularity. The use of different consoles in the data set suggests that different consoles are gonna have different fan bases which will affect the sales and consensus of the game. 
+
+```{r, echo = FALSE, "distribution of Platform"}
+ggplot(game_data, aes(x = Platform, y = Critic_Score, color = Platform)) + geom_boxplot() + geom_jitter(alpha = 0.1) +
+  theme(axis.text.x = element_text(angle  = 45, size = 8, hjust = 0.9)) +
+  labs(title = "Critic Scores of Platforms", y = "Critic Score") 
+```
+
+The box plots show that `Critic_Score`, as well as the interquartile range of the `Critic_Score`, is different for each platform. So not only does each platform represent a different culture of people who play video games, but the box plots reveal that each platform has its own unique distribution of `Critic_Score` that's similar to the histogram of all observations. The plot also reveals that the data set has 17 different platforms that games are. Additionally, the density of the points on the box plots shows that some platforms have significantly more appearances in the data set, namely the PS2, Xbox 360, and PS3. When creating the recipe for the model, we'll have to collapse `Platform` into fewer levels so it's an effective categorical variable.
+
+### Correlation Matrix
+
+Now we'll look at the correlation between the continuous predictors. Doing so will inform us whether we need to consider the collinearity of variables when making the recipe.
+
+```{r, echo = FALSE, "comparing correlation matrices"}
+game_data$User_Score <- as.double(game_data$User_Score)
+
+corr_matrix <- cor(game_data[,c("NA_Sales","EU_Sales","JP_Sales","Other_Sales","Global_Sales","Critic_Score","Critic_Count","User_Score","User_Count")])
+corrplot(corr_matrix, method = 'number', type = 'lower', diag = F)
+```
+
+The correlation matrix shows that most of the variables have a very low correlation with each other. While I mentioned earlier that `Global_Sales` is the sum of the other four Sales columns, I included the variable in the correlation matrix to reflect that fact. The correlation matrix shows that `Global_Sales` has a pretty high correlation with the other Sales variables (although `JP_Sales` and `Other_Sales` are relatively low to `NA_Sales` and `EU_Sales`). This would suggest that the other four sales variables would be a better use for the recipe in predicting `Critic_Score` than `Global_Sales` because it provides more nuance into the sales performance of each game. 
+
+A couple of pairings have a relatively high correlation, namely `NA_Sales` with `EU_Sales`, `NA_Sales` with `Other_Sales`, and `EU_Sales` with `Other_Sales`, indicating their relationship is somewhat linear but not enough to investigate collinearity when making the recipe. This low collinearity also justifies the use of `User_Score` and `User_Count` as variables in the recipe.
+
+### Critic_Score vs User_Score
+
+```{r, echo=FALSE, "critic score vs user score scatterplot"}
+ggplot(game_data, aes(x = User_Score, y = Critic_Score)) + 
+  geom_point(alpha = 0.1) +
+  geom_abline(intercept = 0, slope = 10, lty = 2) +
+  labs(x = "User Score", y = "Critic Score") + theme_minimal()
+```
+
+The scatter plot comparing `User_Score` and `Critic_Score` for each game shows a slight positive correlation between the two variables that's reflected in the correlation plot. The graph shows that generally (assuming the `User_Score` is scaled to `Critic_Score`), the public and critics have the same impression of games, especially more games with a higher score. This allows `User_Score` to be a helpful variable for predicting `Critic_Score` since it's generally helpful but not a perfect match. `User_Count`, the number of user reviews, will also be informative as an indicator of games getting more attention and thus performing better. 
+
+## Setting Up and Fitting the Models 
+
+Before making a recipe and fitting models, a couple of variables have to be changed to make the data set more suitable for making models. Less common observations in platform, publisher, and developer will have to be grouped together so that the variable doesn't have too many levels to encode for in models.
+
+### Collapsing Categorical Variables
+
+```{r, echo=FALSE, "grouping less common observations"}
+print(paste("Dimension of Platform: ", dim(table(game_data$Platform))))
+
+print(paste("Dimension of Publisher: ", dim(table(game_data$Publisher))))
+
+print(paste("Dimension of Genre: ", dim(table(game_data$Genre))))
+
+print(paste("Dimension of Developer: ", dim(table(game_data$Developer))))
+```
+
+`Platform`, `Publisher`, and `Developer` have too many levels, so the less common observations will be grouped together into a Misc category. While 12 is a lot of levels for Genre, I won't be decreasing the number of levels in the variable because I think that each genre is distinct and unique enough to warrant its own level, and because the variable already has a Misc value. My goal for combining the observations to reduce the number of levels is to balance the number of levels the variable has with the proportion of observations that would fall into the Misc category. Looking at the number of unique developers, it's apparent that there are too many levels in the variable to collapse into smaller categories that would be useful for a model.
+
+Looking at the box plots for the distribution of `Critic_Score` showed that the easy way to collapse the columns is to group the consoles into the company that manufactures them, with the exception of PC being by itself. Trying to apply the process to `Developer`, I noticed that there wasn't any appropriate number of levels that didn't cause the extra column to have a significant proportion of the observations. The developer column is too diverse, so the recipe won't include the variable when predicting `Critic_Score`.
+
+
+```{r, echo=FALSE, "tables for Developer and Publisher"}
+publisher_table <- table(game_data$Publisher)
+names(publisher_table[publisher_table > 290])
+
+# Assigning the rest of the publishers to a vector 
+# Note: this code was written before we learned fct_lump and I didn't want to change the code
+other_publishers <- publisher_table[publisher_table <= 290]
+```
+
+After testing different threshold values, I decided on the seven most popular publishers in the data set. While a different number of levels for the variable could be appropriate, picking the top seven, and thus having eight levels total, felt like an appropriate balance of not having too many dummy variables that have to be encoded while ensuring that the `Misc` column doesn't have an overwhelming proportion of the observations. 
+
+```{r, experimenting with different sets}
+# Collapsing less common observations 
+game_data <- game_data %>%
+  mutate(Platform = forcats::fct_collapse(Platform,
+                                         Nintendo = c("3DS","DS","GBA","GC",
+                                                      "Wii","WiiU"),
+                                         PC = c("PC"),
+                                         Playstation = c("PS","PS2","PS3","PS4","PSP",
+                                                         "PSV"),
+                                         Microsoft = c("X360","XB","XOne"),
+                                         Sega = c("DC")),
+         Publisher = forcats::fct_collapse(Publisher,
+                                            Activision = c("Activision"),
+                                            EA = c("Electronic Arts"),
+                                            Nintendo = c("Nintendo"),
+                                            Sega = c("Sega"),
+                                            Sony = c("Sony Computer Entertainment"),
+                                            THQ = c("THQ"),
+                                            Ubisoft = c("Ubisoft"),
+                                            Misc = names(other_publishers)))
+
+# Converting Platform, Publisher, and Genre to factors
+game_data$Platform <- as.factor(game_data$Platform)
+game_data$Publisher <- as.factor(game_data$Platform)
+game_data$Genre <- as.factor(game_data$Genre)
+# Convert User_Score to numeric values (was characters)
+game_data$User_Score <- as.numeric(game_data$User_Score)
+```
+
+Now that the categorical variables have an appropriate number of levels, we can work on splitting data, making folds, and creating the recipe to predict `Critic_Score`.
+
+### Splitting Data & Making Folds
+
+Before fitting the models to any data, we have to make sure the data is properly split into a training and testing set that is stratified on `Critic_Score`. Additionally, to initially train the models with the parameters being tuned, we need to make cross-validation folds also stratified on `Critic_Score`. Stratifying the data on the outcome variable ensures there's no imbalance in the observations between the data splits and within the folds. Once we find the best model with the optimal tuning parameters, we'll train the model on the entire training set and then use the testing set to assess the model's performance. Since our observation variable is continuous (and as such we're dealing with a regression problem), model performance will be assessed using root mean squared error (RMSE).
+
+```{r, making data splits and folds}
+set.seed(17)
+
+# splitting
+game_split <- initial_split(game_data, prop = 3/4, strata = Critic_Score)
+game_train <- training(game_split)
+game_test <- testing(game_split)
+
+# folds
+ten_folds <- vfold_cv(game_data, v = 10, strata = Critic_Score)
+```
+
+I chose to split the data into 75% for training and 25% for testing, the observations being stratified on `Critic_Score` since it's the variable we're going to predict. I also decided to use create ten folds, a standard number for cross-validation. To ensure that the data is properly split, we'll look at the proportion of observations in both the training and testing sets.
+
+```{r, echo=FALSE, "checking split of data"}
+print(paste("Proportion of training data: ", nrow(game_train)/nrow(game_data)))
+print(paste("Proportion of testing data: ", nrow(game_test)/nrow(game_data)))
+```
+
+As the code shows, the data is split into 75% training and 25% testing, so we can proceed to create the recipe. 
+
+### Making the Recipe
+
+The models used throughout the analysis of the data set will all use the same recipe. The recipe uses nine predictors: `Platform`, `Genre`, `Publisher`, `NA_Sales`, `EU_Sales`, `JP_Sales`, `Other_Sales`, `User_Score`, and `User_Count`. As mentioned in the EDA, `Global_Sales` won't be used as it is redundant. Additionally, `Platform`, `Genre`, and `Publisher` will be converted into dummy variables with the adjusted levels. Since we're working with no missing observations, there are no variables to impute. And finally, we will normalize all of the variables. 
+
+```{r, making the recipe}
+game_recipe <- recipe(Critic_Score ~ Platform + Genre + Publisher + NA_Sales + EU_Sales + JP_Sales + Other_Sales + User_Score + User_Count, data = game_train) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_normalize(all_predictors())
+
+# prep and bake the model to make sure it works
+#prep(game_recipe) %>% bake(new_data = game_train)
+```
+
+I will be using the recipe on five different models; linear regression, k-nearest neighbors, elastic net, random forests, and boosted trees. For the models with parameters, the parameters will be tuned using standard ranges to find an optimal value.
+
+### Making Models and Workflows
+
+With the recipe created, it's time to make the models. Since some of the models will have hyperparameters being tuned and the models will be trained on the cross-validation folds that were just made, running the models will take a long time (about an hour for the longest). To avoid waiting every time for the model to run, we'll save the models to files to use when evaluating the performance of the models. As mentioned earlier, we'll use RMSE to assess the performance of the tuned models to find the best one. RMSE is one of the most popular measures for evaluating regression models, where the lower the RMSE, the better. We'll start by fitting five models and then test the two best-performing models. 
+
+Additionally, any hyperparameter available in each model will be tuned with a specific range and number of levels. The tuning grid for each hyperparameter is determined by the computational cost of training the model.
+
+
+```{r, making models and workflows}
+# linear regression
+linreg_model <- linear_reg() %>%
+  set_engine("lm")
+
+game_linreg_wflow <- workflow() %>%
+  add_model(linreg_model) %>%
+  add_recipe(game_recipe)
+
+# k-nearest neighbors (knn) + tuning grid
+knn_model <- nearest_neighbor(neighbors = tune()) %>%
+  set_mode("regression") %>%
+  set_engine("kknn")
+
+game_knn_wflow <- workflow() %>%
+  add_model(knn_model) %>%
+  add_recipe(game_recipe)
+
+knn_grid <- grid_regular(neighbors(range = c(1,20)),
+                         levels = 20)
+
+# Elastic Net (enet) + tuning grid
+enet_model <- linear_reg(mixture = tune(),
+                         penalty = tune()) %>%
+  set_mode("regression") %>%
+  set_engine("glmnet")
+
+game_enet_wflow <- workflow() %>%
+  add_model(enet_model) %>%
+  add_recipe(game_recipe)
+
+enet_grid <- grid_regular(penalty(range = c(0, 1),
+                                     trans = identity_trans()),
+                        mixture(range = c(0, 1)),
+                             levels = 11)
+
+# Random Forest (rf) + tuning grid
+rf_spec <- rand_forest(mtry = tune(), 
+                           trees = tune(), 
+                           min_n = tune()) %>%
+  set_engine("ranger", importance = "impurity") %>% 
+  set_mode("regression")
+
+game_rf_wflow <- workflow() %>%
+  add_model(rf_spec) %>%
+  add_recipe(game_recipe)
+
+rf_grid <- grid_regular(mtry(range = c(1, 6)), 
+                        trees(range = c(200, 700)),
+                        min_n(range = c(10, 20)),
+                        levels = 6)
+
+# Boosted Trees (bf) + tuning grid
+bf_spec <- boost_tree(mtry = tune(), 
+                           trees = tune(), 
+                           learn_rate = tune()) %>%
+  set_engine("xgboost") %>% 
+  set_mode("regression")
+
+game_bf_wflow <- workflow() %>% 
+  add_model(bf_spec) %>% 
+  add_recipe(game_recipe)
+
+bf_grid <- grid_regular(mtry(range = c(1, 6)), 
+                        trees(range = c(200, 700)),
+                        learn_rate(range = c(1, 0.1),
+                                   trans = identity_trans()),
+                        levels = 6)
+```
+
+### Training Tuned Models on Folds
+
+With the models created, we can now use the cross-validation folds and tuning grids to find the optimal parameter values for each type of model to then compare and find the best models. As mentioned earlier, we'll save the models to files so we can assess model performance without having to train the models every time (which took about 90 minutes). 
+
+```{r, eval=FALSE, "training other models across 10 folds"}
+# linear regression
+game_lm_fit <- fit_resamples(game_linreg_wflow, resamples = ten_folds)
+
+# knn models 
+game_knn_tune <- tune_grid(object = game_knn_wflow,
+                           resamples = ten_folds,
+                           grid = knn_grid)
+
+# enet models
+game_enet_tune <- tune_grid(object = game_enet_wflow,
+                            resamples = ten_folds,
+                            grid = enet_grid)
+
+# rf models
+game_rf_tune <- tune_grid(object = game_rf_wflow,
+                          resamples = ten_folds,
+                          grid = rf_grid)
+
+# bf models
+game_bf_tune <- tune_grid(object = game_bf_wflow,
+                          resamples = ten_folds,
+                          grid = bf_grid)
+```
+
+```{r, eval = FALSE, "training rf models"}
+save(game_lm_fit, file = "game_lm_fit.rda")
+save(game_knn_tune, file = "game_knn_tune.rda")
+save(game_enet_tune, file = "game_enet_tune.rda")
+save(game_rf_tune, file = "game_rf_tune.rda")
+save(game_bf_tune, file = "game_bf_tune.rda")
+```
+
+### Finding the Best Parameter Values
+
+Having saved the models to files within the project folder, we can now load the models to assess the performance of the models with the tuned parameters. In the case where we're not training the models for the first time, we'll load the models. Then we'll use `select_best()` to find the model with the lowest RMSE out of all of the combinations of our tuned parameters. From there, we'll extract the RMSE for the model with the optimal parameter values and compare across models. 
+
+```{r, loading the files}
+load("game_lm_fit.rda")
+load("game_knn_tune.rda")
+load("game_enet_tune.rda")
+load("game_rf_tune.rda")
+load("game_bf_tune.rda")
+```
+
+```{r, finding optimal parameter values}
+# linear regression - doesn't have any parameters to tune
+#collect_metrics(game_lm_fit) %>% filter(.metric == 'rmse')
+
+# knn
+#collect_metrics(game_knn_tune) %>% filter(.metric == 'rmse')
+
+game_best_knn <- select_best(game_knn_tune,
+                             metric = 'rmse',
+                             desc(neighbors))
+# enet
+#collect_metrics(game_enet_tune) %>% filter(.metric == 'rmse')
+
+game_best_enet <- select_best(game_enet_tune,
+                              metric = 'rmse',
+                              penalty,
+                              mixture)
+# rf
+#collect_metrics(game_rf_tune) %>% filter(.metric == 'rmse')
+
+game_best_rf <- select_best(game_rf_tune,
+                            metric = 'rmse',
+                            m_try,
+                            trees,
+                            min_n)
+
+# bf
+#collect_metrics(game_bf_tune) %>% filter(.metric == 'rmse')
+#autoplot(game_bf_tune)
+game_best_bf <- select_best(game_bf_tune,
+                            metric = 'rmse',
+                            m_try,
+                            trees,
+                            learn_rate)
+```
+
+Another possibility for finding the "best" parameter values for each model was using `select_by_one_std_err()` which selects the most simple model within one standard error within the most optimal model (the one found by `select_best()`). Since the goal of these models is predictive accuracy I stuck with `select_best()` when finding the "best" parameter values. Using this revealed the optimal parameter values for each type of model:
+  K-nearest neighbors: k = 20
+  Elastic Net: penalty = 0.1, mixture = 0.2
+  Random Forest: mtry = 6, trees = 700, min_n = 10
+  Boosted Trees: mtry = 5, trees = 200, learn_rate = 0.1
+
+#### Comparing Optimal Models 
+
+```{r, echo=FALSE, "comparing models with optimal parameters"}
+lm_rmse <- collect_metrics(game_lm_fit) %>% 
+  filter(.metric == 'rmse')
+
+knn_rmse <- collect_metrics(game_knn_tune) %>% 
+  filter(.metric == 'rmse') %>%
+  arrange(mean) %>%
+  slice(1)
+
+enet_rmse <- collect_metrics(game_enet_tune) %>% 
+  filter(.metric == 'rmse') %>%
+  arrange(mean) %>%
+  slice(1)
+
+rf_rmse <- collect_metrics(game_rf_tune) %>% 
+  filter(.metric == 'rmse') %>%
+  arrange(mean) %>%
+  slice(1)
+
+bf_rmse <- collect_metrics(game_bf_tune) %>%
+  filter(.metric == 'rmse') %>%
+  arrange(mean) %>%
+  slice(1)
+
+rmse_table <- tibble(Model = c("Linear Regression","KNN","Elastic Net","Random Forest","Boosted Trees"), RMSE = c(lm_rmse$mean, knn_rmse$mean, enet_rmse$mean, rf_rmse$mean, bf_rmse$mean))
+
+rmse_table
+```
+
+The table shows that the boosted trees performed the best of all of the models, followed by the random forest and k-nearest neighbor models. The linear regression and elastic net models both performed poorly relative to the other models which suggests that the data isn't linear. Additionally, linear regression is just the elastic net model when penalty and mixture are both zero, so the small improvement between the linear regression model and the best elastic net suggests that ridge and lasso regression don't improve the model's predictive accuracy a substantial amount.
+
+### Autoplots for Tuned KNN, Random Forest, and Boosted Trees Models
+
+We'll now look at the autoplots for the other top three performing models. The autoplot measures the performance of the models using RMSE, and the lower the RMSE is the better. 
+
+```{r, echo=FALSE, "autoplot for knn models"}
+autoplot(game_knn_tune, metric = 'rmse')
+```
+
+For the k-nearest neighbor models, we tuned the number of neighbors in each model from one to twenty. As the autoplot shows, the RMSE of the model decreases as the number of neighbors increases. As the number of neighbors increases, the model is predicting values by taking the average of more data points, i.e. using more information to make the predictions. It's also important to note the bias-variance trade-off of the models. As the number of neighbors increases, the variance of the model's predictions decreases while the (square of the) bias of the model's predictions increases. The number of predictors in the recipe is likely affecting the limits of the model's performance, as increasing the dimensions decreases the number of points in each neighborhood. 
+
+```{r, echo=FALSE, "autoplot for random forests"}
+autoplot(game_rf_tune, metric = 'rmse')
+```
+
+For the random forest models, the parameters being tuned are the minimal node size (min_n, from 10 to 20), the number of trees in the forest (trees, from 200 to 700), and the number of randomly selected predictors (mtry, from 1 to 6). The number of randomly selected predictors has to be less than the number of predictors in the model (9) otherwise every tree's first branch could be the same predictor, which would violate the independence of the trees. The plot shows that the number of trees doesn't affect the performance of the model. Additionally, the minimal node size also doesn't appear to affect the performance of the models. The plots show that increasing the number of randomly sampled predictors improves the performance of the model, with the model that has min_n = 10 and trees = 700 being marginally better than the others with mtry = 6. 
+
+```{r, echo=FALSE, "autoplot for boosted trees"}
+autoplot(game_bf_tune, metric = 'rmse')
+```
+
+For the boosted trees models, the parameters being tuned are the learning rate (learn_rate, from 1 to 0.1), the number of trees (trees, from 200 to 700), and the number of randomly selected predictors (mtry, from 1 to 6) all on six levels. The models did substantially better with fewer trees, as 200 has the lowest RMSE across most of the plots. Additionally, it seems that models with lower learning rates have lower RMSEs. It also appears that less randomly selected predictors lead to a lower RMSE. The optimal parameter values follow two of these three trends with trees = 200 and learning rate = 1. However, mtry = 5. Focusing on the plot where `learn_rate` = 0.1, we can see the general trend seen in the other plots isn't followed here, and flips at `mtry` = 1. The RMSEs for the models stayed constant as both the number of trees and the number of randomly selected predictors increased (except for that optimal model).
+
+### Further Exploring the Best Models
+
+The tables and charts above show that the random forests and boosted trees performed the best on the folds. We'll now look at the parameter values of the best random forest model and best boosted trees model, and then see how the models perform on the testing set when trained on the entire training set.
+
+```{r, echo=FALSE, "showing the best model"}
+rf_rmse
+bf_rmse 
+```
+
+As mentioned, the best random forest model was discovered when comparing all of the models. The best random forest model randomly sampled six predictors, had 700 trees, and a minimum node size of 10 with an RMSE of 8.9938. The best boosted trees model randomly sampled five predictors, had 200 trees, and had a learning rate of 0.1 with an RMSE of 8.896. 
+
+We'll now finalize the workflow and fit the models on the entire training set so that they're ready for the testing set. While computationally less expensive than when the models were being tuned, we'll still save the models to rda files to save time.
+
+```{r, eval = FALSE, "finalizing workflow and using the entire training set"}
+# fitting on entire training set
+game_final_rf_wflow <- finalize_workflow(game_rf_wflow, game_best_rf)
+game_final_rf <- fit(game_final_rf_wflow, data = game_train)
+
+game_final_bf_wflow <- finalize_workflow(game_bf_wflow, game_best_bf)
+game_final_bf <- fit(game_final_bf_wflow, data = game_train)
+
+
+# saving the model
+save(game_final_rf, file = "game_final_rf.rda")
+save(game_final_bf, file = "game_final_bf.rda")
+```
+
+## Testing the Models
+
+By finalizing the workflow and training the model on the entire training set, we can now test the model on the testing data set aside earlier. In addition, we'll visualize how well the model predicted values and analyze the importance of specific variables in the model. 
+
+```{r, testing the models}
+# loading the models
+load("game_final_rf.rda")
+load("game_final_bf.rda")
+
+# assessing performance
+augment(game_final_rf, new_data = game_test) %>%
+  rmse(truth = Critic_Score, estimate = .pred)
+augment(game_final_bf, new_data = game_test) %>%
+  rmse(truth = Critic_Score, estimate = .pred)
+```
+
+The random forest model performed better on the testing set than on the folds with an RMSE of 8.752243. And, the boosted trees model performed better on the testing set too with an RMSE of 8.692534.
+
+Since RMSE is a reflection of how well the model can predict observation values, where the observation values of `Critic_Score` range from 0 to 98, those values for the RMSE aren't that bad. So the model performed pretty well while also explaining some of the variation in the outcome. We can also look at a plot of the values predicted from the models versus the actual value.
+
+```{r, echo=FALSE, "rf - scatterplot for predicted values"}
+# table for the predicted values
+rf_pred_values <- predict(game_final_rf, new_data = game_test %>% select(-Critic_Score)) %>%
+  bind_cols(game_test %>% select(Critic_Score))
+
+# scatter plot 
+ggplot(rf_pred_values, aes(x = .pred, y = Critic_Score)) +
+  geom_point(alpha = 0.1) + 
+  geom_abline(lty = 2) + 
+  coord_obs_pred() +
+  xlab("Predicted Critic Score") +
+  ylab("Actual Critic Score") + 
+  ggtitle("Random Forest")
+```
+
+The dotted line going through the middle of the graph represents where the predicted critic score would equal the actual critic score. The plot shows that most of the predictions don't fall on that line, by the darkness of the points shows that most of the predictions fall close to the line. The best predictions seem to be when the actual critic score is in the 70's, with the points straying farther from the line as the actual critic score decreases. Below Actual Critic Score = 70, we can see that most of the points are below the dotted line. This indicates that for lower-performing games, the model overestimates the game's performance. For higher scoring games it appears the opposite is true.
+
+```{r, echo=FALSE, "bf - scatterplot for predicted values"}
+# table for the predicted values
+bf_pred_values <- predict(game_final_bf, new_data = game_test %>% select(-Critic_Score)) %>%
+  bind_cols(game_test %>% select(Critic_Score))
+
+# scatter plot 
+ggplot(bf_pred_values, aes(x = .pred, y = Critic_Score)) +
+  geom_point(alpha = 0.1) + 
+  geom_abline(lty = 2) + 
+  coord_obs_pred() +
+  xlab("Predicted Critic Score") +
+  ylab("Actual Critic Score") + 
+  ggtitle("Boosted Trees")
+```
+
+The plot for the boosted trees shows that most of the predictions also fall close to the dotted line. The best predictions are also around the 70's with the predictions straying further as the score gets worse. It appears that the points from the boosted trees are more spread out than the points from the random forest. Just like the random forest, the model overestimates games with lower scores and underestimates games with higher scores. 
+
+### Variable Importance Plots 
+
+For random forests and boosted trees, we can look at the importance of each predictor in the models.
+
+```{r, echo=FALSE, "rf variable importance plot"}
+# variable importance plot
+game_final_rf %>%
+  extract_fit_parsnip() %>%
+  vip(aes = list(fill = 'blue'))
+```
+
+The variable importance plot (aka VIP) shows that `User_Count` and `User_Score` and the most important predictors. This would make sense as while the general population doesn't share the exact same views as critics, users will generally have similar opinions about a game. The VIP also shows that the sales variables are the next most important predictors, with `Other_Sales` being more important than `JP_Sales`. This order of importance also makes sense as it reflects the size of the gaming market in the respective region. 
+
+```{r, echo=FALSE, "bf variable importance plot"}
+# variable importance plot
+game_final_bf %>%
+  extract_fit_parsnip() %>%
+  vip(aes = list(fill = 'blue'))
+```
+
+The VIP for the boosted trees looks very similar to the random forests, with `User_Score` and `User_Count` being the most important variables. One noticeable difference though is that the sales data seems to be less important relative to `User_Score` and `User_Count`. Additionally, one of the dummy variables for `Genre`, specifically the Sports category, is a more important variable than `JP_Sales`. 
+
+## Conclusion
+
+The results from fitting multiple kinds of models show that the best model at predicting the `Critic_Score` of a video game is boosted trees, with random forests being close behind. This result makes sense as random forests as models are generally versatile. However, even with the boosted trees and random forests having the best predictive capabilities, they're still doing a mediocre job at predicting `Critic_Score` based on the RMSE of the final models. 
+
+The two models that performed the worst were the linear regression and elastic net models. The results of this weren't surprising, as it's hard to predict ahead of time whether your data is linear. The results of the models on the folds, however, did reveal that the data is likely not linear and no amount of lasso or ridge regression can improve the kind of model. The other model we used that performed the third best was the k-nearest neighbors (KNN) model. Since we learned that the data isn't linear, the fact that the KNN model did better than linear regression and elastic net isn't surprising. Additionally, the fact that the KNN model did worse than the random forest and boosted trees is also not surprising. KNN models do worse with more predictors as the higher number of dimensions makes finding neighbors for each data point becomes more difficult. 
+
+As discussed when investigating the importance of variables in the random forest and boosted trees, it's not surprising that the variables associated with the sales of the games and the user reviews were the most important in predicting `Critic_Score`. However, the VIPs also showed that particular levels of the categorical variables were important in predicting the outcome variable. Thus, one way to improve this project would be looking at how the levels of the categorical variables to see which levels have the largest impact on predicting `Critic_Score`. Investigating the levels of `Publisher`, `Genre`, and `Platform` can give insight into how critic review games of a particular genre, how the platform affects the critic's experience, or how particular publishers can influence critics' opinions. 
+
+A topic to explore in future research with this data set would be predicting the sales of games using the reviews of critics and users along with the categorical variables used in this project. Additionally, further research into this topic would benefit from the data set being updated to include more recent games, as the most recent game in this data set is from 2016. Predicting the sales of games, either using `Global_Sales` or one of the variables for a particular region, can give insight into what particular games people tend to enjoy the most and how the opinions for certain game genres, publishers, and platforms change over time. 
+
+## Sources
+
+This data set comes from the Kaggle Datasets repository posted by the user thedevastator (<https://www.kaggle.com/datasets/thedevastator/video-game-sales-and-ratings?select=Video_Games.csv>). The user got the data set from Sumt Kumar Shukla on his personal website (<https://data.world/sumitrock/videogame>).
