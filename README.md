@@ -2,12 +2,12 @@ This repository contains the final product of my project for PSTAT131: Statistic
 
 Table of Contents of the Final Report:
 1. Introduction
+
    a. Loading packages
+
 2. Exploratory Data Analysis
 
    a. Missing Data
-
-      i. Dropping Observations
 
    b. Critic_Score
 
@@ -17,7 +17,7 @@ Table of Contents of the Final Report:
 
    e. Critic_Score vs User_Score
 
-4. Setting Up and Fitting the Models
+3. Setting Up and Fitting the Models
 
    a. Collapsing categorical variables
 
@@ -31,17 +31,15 @@ Table of Contents of the Final Report:
 
    f. Finding the Best Parameter Values
 
-      i. Comparing Optimal Models
-
    g. Autoplots for Tuned KNN, Random Forest, and Boosted Tree Models
 
    h. Further Exploring the Best Models
 
-6. Testing the Models
+4. Testing the Models
 
    a. Variable Importance Plots
 
-7. Conclusion
+5. Conclusion
 
 File Descriptions:
 * DataMemo.Rmd: initial assignment for the project where we pitch our plan for the project and include some basic EDA of the data we sourced
