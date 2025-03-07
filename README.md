@@ -4,13 +4,14 @@ Table of Contents of the Final Report:
 1. Introduction
    a. Loading packages
 2. Exploratory Data Analysis
+
    a. Missing Data
      i. Dropping Observations
    b. Critic_Score
    c. Platform
    d. Correlation Matrix
    e. Critic_Score vs User_Score
-3. Setting Up and Fitting the Models
+4. Setting Up and Fitting the Models
    a. Collapsing categorical variables
    b. Splitting Data & Making Folds
    c. Making the Recipe
@@ -20,9 +21,9 @@ Table of Contents of the Final Report:
      i. Comparing Optimal Models
   g. Autoplots for Tuned KNN, Random Forest, and Boosted Tree Models
   h. Further Exploring the Best Models
-4. Testing the Models
+5. Testing the Models
    a. Variable Importance Plots
-5. Conclusion
+6. Conclusion
 
 File Descriptions:
 * DataMemo.Rmd: initial assignment for the project where we pitch our plan for the project and include some basic EDA of the data we sourced
