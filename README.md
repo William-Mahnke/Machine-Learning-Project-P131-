@@ -6,24 +6,42 @@ Table of Contents of the Final Report:
 2. Exploratory Data Analysis
 
    a. Missing Data
-     i. Dropping Observations
+
+      i. Dropping Observations
+
    b. Critic_Score
+
    c. Platform
+
    d. Correlation Matrix
+
    e. Critic_Score vs User_Score
+
 4. Setting Up and Fitting the Models
+
    a. Collapsing categorical variables
+
    b. Splitting Data & Making Folds
+
    c. Making the Recipe
+
    d. Making Models and Workflow
+
    e. Training Tuned Models on Folds
+
    f. Finding the Best Parameter Values
-     i. Comparing Optimal Models
-  g. Autoplots for Tuned KNN, Random Forest, and Boosted Tree Models
-  h. Further Exploring the Best Models
-5. Testing the Models
+
+      i. Comparing Optimal Models
+
+   g. Autoplots for Tuned KNN, Random Forest, and Boosted Tree Models
+
+   h. Further Exploring the Best Models
+
+6. Testing the Models
+
    a. Variable Importance Plots
-6. Conclusion
+
+7. Conclusion
 
 File Descriptions:
 * DataMemo.Rmd: initial assignment for the project where we pitch our plan for the project and include some basic EDA of the data we sourced
